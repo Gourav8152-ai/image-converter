@@ -1,0 +1,93 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f2f2f2;
+    margin: 0;
+    padding: 0;
+}
+
+header {
+    background-color: #007BFF;
+    color: white;
+    text-align: center;
+    padding: 20px;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+h1 {
+    font-size: 28px;
+}
+
+button {
+    padding: 10px 20px;
+    font-size: 18px;
+    margin: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+#chooseImageBtn {
+    background-color: #007BFF;
+    color: white;
+}
+
+/* #convertToJpegBtn {
+    background-color: #ccc;
+    color: #777;
+    cursor: not-allowed;
+} */
+
+.enabled-button {
+    background-color: blue; /* Change this to the color you prefer */
+    color: white; /* Text color for better contrast */
+}
+
+/* #convertToJpegBtn:enabled {
+    background-color: #28a745;
+    color: white;
+} */
+
+#convert-button:enabled {
+    background-color: green; /* Change this to the color you prefer */
+    color: white; /* Text color for better contrast */
+}
+
+/* Add CSS to align the images within the feedback area */
+.feedback {
+    /* margin-top: 0; */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: left;
+    align-items: left;
+}
+/* #output{
+    height: 5%;
+    width: 5%;
+} */
+.feedback img {
+    max-width: 20%;
+    height: auto;
+}
+/* Add this CSS to your stylesheet or in a <style> tag in your HTML */
+.result-container {
+    display: flex; /* Use Flexbox */
+    flex-wrap: nowrap; /* Prevent wrapping to the next line */
+    justify-content: flex-start; /* Align items from left to right */
+    align-items: center; /* Vertically align items */
+    gap: 10px; /* Add some spacing between items if desired */
+}
+
+.result {
+    width: calc(20% - 2 * 10px); /* Calculate the width for 5 items with 10px gap between them */
+    display: flex;
+    flex-direction: column; /* Stack image and link vertically */
+    align-items: center; /* Center items within the container */
+    text-align: center; /* Center text within each result */
+}
