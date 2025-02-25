@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (maxResolutionValue) maxResolutionValue.textContent = maxResolutionSlider?.value || '3000';
     if (jpegQualityValue) jpegQualityValue.textContent = jpegQualitySlider?.value || '90';
     
-    // Update slider value displays - FIXED
+    // Update slider value displays
     if (maxResolutionSlider) {
         maxResolutionSlider.addEventListener('input', function() {
             maxResolutionValue.textContent = this.value;
@@ -35,13 +35,13 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Setup file input change listener
+    // Setup file input change listener - FIXED
     fileInput.addEventListener('change', function () {
         // Enable the convert button when files are selected
-        convertButton.disabled = files.length === 0;
+        convertButton.disabled = this.files.length === 0;
     });
     
-    // Setup drag and drop - FIXED
+    // Setup drag and drop
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
     });
@@ -163,7 +163,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // SIMPLIFIED image processing function
+    // FIXED image processing function
     function processImage(file, maxResolution, jpegQuality, enableSharpening) {
         return new Promise((resolve, reject) => {
             // Create an image from the file
@@ -175,8 +175,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 let newWidth = img.width;
                 let newHeight = img.height;
                 
+                // Calculate if we need to upscale
+                const needsUpscaling = img.width < MIN_RESOLUTION && img.height < MIN_RESOLUTION;
+                
                 // Handle minimum resolution (800px)
-                if (img.width < MIN_RESOLUTION && img.height < MIN_RESOLUTION) {
+                if (needsUpscaling) {
                     const aspectRatio = img.width / img.height;
                     
                     if (img.width < img.height) {
@@ -186,6 +189,8 @@ document.addEventListener('DOMContentLoaded', function () {
                         newHeight = MIN_RESOLUTION;
                         newWidth = newHeight * aspectRatio;
                     }
+                    
+                    console.log(`Upscaling image from ${img.width}x${img.height} to ${newWidth}x${newHeight}`);
                 }
                 
                 // Apply maximum resolution limit if needed
@@ -216,7 +221,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 ctx.drawImage(img, 0, 0, newWidth, newHeight);
                 
                 // Apply sharpening if enabled and image was upscaled
-                if (enableSharpening && img.width < newWidth) {
+                if (enableSharpening && needsUpscaling) {
                     applySharpening(ctx, newWidth, newHeight);
                 }
                 
