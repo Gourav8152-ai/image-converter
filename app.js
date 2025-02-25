@@ -11,9 +11,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const progressContainer = document.getElementById('progress-container');
     const progressBar = document.getElementById('progress-bar');
     const progressText = document.getElementById('progress-text');
+    const dropZone = document.getElementById('drop-zone');
     
     const convertedBlobUrls = [];
-    const MIN_RESOLUTION = 800; // Fixed minimum resolution
+    const MIN_RESOLUTION = 800;
     let totalImages = 0;
     let processedImages = 0;
     
@@ -21,7 +22,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (maxResolutionValue) maxResolutionValue.textContent = maxResolutionSlider?.value || '3000';
     if (jpegQualityValue) jpegQualityValue.textContent = jpegQualitySlider?.value || '90';
     
-    // Update slider value displays
+    // Update slider value displays - FIXED
     if (maxResolutionSlider) {
         maxResolutionSlider.addEventListener('input', function() {
             maxResolutionValue.textContent = this.value;
@@ -37,12 +38,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // Setup file input change listener
     fileInput.addEventListener('change', function () {
         // Enable the convert button when files are selected
-        convertButton.disabled = false;
+        convertButton.disabled = files.length === 0;
     });
     
-    // Setup drag and drop
-    const dropZone = document.getElementById('drop-zone') || document.body;
-    
+    // Setup drag and drop - FIXED
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
     });
@@ -73,8 +72,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function handleDrop(e) {
         const dt = e.dataTransfer;
         const files = dt.files;
-        fileInput.files = files;
-        convertButton.disabled = false;
+        
+        // Update file input with dropped files
+        if (files.length > 0) {
+            fileInput.files = files;
+            convertButton.disabled = false;
+        }
     }
 
     // Convert button click handler
@@ -125,8 +128,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Show processing message
         progressText.textContent = `Processing ${index + 1}/${totalImages} images`;
         
-        // Process the current image using a web worker if available
-        processImageWithWorker(files[index], maxResolution, jpegQuality, enableSharpening).then(result => {
+        // Process the current image
+        processImage(files[index], maxResolution, jpegQuality, enableSharpening).then(result => {
             const { file, blobUrl } = result;
             
             // Create and append result element
@@ -160,250 +163,27 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Process image with web worker if available
-    function processImageWithWorker(file, maxResolution, jpegQuality, enableSharpening) {
+    // SIMPLIFIED image processing function
+    function processImage(file, maxResolution, jpegQuality, enableSharpening) {
         return new Promise((resolve, reject) => {
-            // Check if Web Workers are supported
-            if (window.Worker) {
-                try {
-                    // Create a worker from a blob URL
-                    const workerCode = `
-                        self.onmessage = function(e) {
-                            const { file, maxResolution, jpegQuality, enableSharpening } = e.data;
-                            
-                            // Create an image from the file
-                            const img = new Image();
-                            img.src = URL.createObjectURL(file);
-                            
-                            img.onload = function() {
-                                // Calculate dimensions while maintaining aspect ratio
-                                let newWidth = img.width;
-                                let newHeight = img.height;
-                                const minDimension = 800;
-                                
-                                // Check if image is smaller than the minimum resolution
-                                if (img.width < minDimension || img.height < minDimension) {
-                                    // Calculate new dimensions while maintaining aspect ratio
-                                    const aspectRatio = img.width / img.height;
-                                    
-                                    if (img.width < img.height) {
-                                        // Portrait or square image
-                                        newWidth = minDimension;
-                                        newHeight = newWidth / aspectRatio;
-                                    } else {
-                                        // Landscape image
-                                        newHeight = minDimension;
-                                        newWidth = newHeight * aspectRatio;
-                                    }
-                                    
-                                    // Make sure both dimensions are at least 800px
-                                    if (newWidth < minDimension) {
-                                        newWidth = minDimension;
-                                        newHeight = newWidth / aspectRatio;
-                                    }
-                                    if (newHeight < minDimension) {
-                                        newHeight = minDimension;
-                                        newWidth = newHeight * aspectRatio;
-                                    }
-                                }
-                                
-                                // Apply maximum resolution limit if needed
-                                if (newWidth > maxResolution || newHeight > maxResolution) {
-                                    const aspectRatio = newWidth / newHeight;
-                                    if (newWidth > newHeight) {
-                                        newWidth = maxResolution;
-                                        newHeight = newWidth / aspectRatio;
-                                    } else {
-                                        newHeight = maxResolution;
-                                        newWidth = newHeight * aspectRatio;
-                                    }
-                                }
-                                
-                                // Round dimensions to integers
-                                newWidth = Math.round(newWidth);
-                                newHeight = Math.round(newHeight);
-                                
-                                // Create off-screen canvas
-                                const canvas = new OffscreenCanvas(newWidth, newHeight);
-                                const ctx = canvas.getContext('2d');
-                                
-                                // Use Lanczos-like approach by doing the resize in steps for better quality
-                                if (img.width < newWidth && Math.max(img.width, img.height) < minDimension) {
-                                    // Upscaling a low-res image using stepped approach
-                                    const steps = 3; // Number of steps for gradual upscaling
-                                    const tempCanvas = new OffscreenCanvas(1, 1);
-                                    const tempCtx = tempCanvas.getContext('2d');
-                                    
-                                    // Start with original dimensions
-                                    let stepWidth = img.width;
-                                    let stepHeight = img.height;
-                                    
-                                    // Calculate dimensions for each step
-                                    for (let i = 0; i < steps; i++) {
-                                        const progress = (i + 1) / steps;
-                                        const targetStepWidth = img.width + (newWidth - img.width) * progress;
-                                        const targetStepHeight = img.height + (newHeight - img.height) * progress;
-                                        
-                                        // Create temp canvas for this step
-                                        tempCanvas.width = targetStepWidth;
-                                        tempCanvas.height = targetStepHeight;
-                                        
-                                        // Draw image with high quality smoothing
-                                        tempCtx.imageSmoothingEnabled = true;
-                                        tempCtx.imageSmoothingQuality = 'high';
-                                        
-                                        if (i === 0) {
-                                            // First iteration uses the original image
-                                            tempCtx.drawImage(img, 0, 0, targetStepWidth, targetStepHeight);
-                                        } else {
-                                            // Subsequent iterations use the previous canvas
-                                            tempCtx.drawImage(tempCanvas, 0, 0, stepWidth, stepHeight, 0, 0, targetStepWidth, targetStepHeight);
-                                        }
-                                        
-                                        // Update dimensions for next step
-                                        stepWidth = targetStepWidth;
-                                        stepHeight = targetStepHeight;
-                                    }
-                                    
-                                    // Final draw to the output canvas
-                                    ctx.drawImage(tempCanvas, 0, 0);
-                                } else {
-                                    // For images that don't need gradual upscaling
-                                    ctx.imageSmoothingEnabled = true;
-                                    ctx.imageSmoothingQuality = 'high';
-                                    ctx.drawImage(img, 0, 0, newWidth, newHeight);
-                                }
-                                
-                                // Apply sharpening if enabled
-                                if (enableSharpening && img.width < newWidth && Math.max(img.width, img.height) < minDimension) {
-                                    // Get image data for pixel manipulation
-                                    const imageData = ctx.getImageData(0, 0, newWidth, newHeight);
-                                    const data = imageData.data;
-                                    const sharpenAmount = 0.3; // Adjust as needed
-                                    
-                                    // Simple sharpening kernel
-                                    const buffer = new Uint8ClampedArray(data.length);
-                                    buffer.set(data);
-                                    
-                                    const w = newWidth;
-                                    const h = newHeight;
-                                    
-                                    // Apply sharpening convolution
-                                    for (let y = 1; y < h - 1; y++) {
-                                        for (let x = 1; x < w - 1; x++) {
-                                            for (let c = 0; c < 3; c++) {
-                                                const i = (y * w + x) * 4 + c;
-                                                // Apply a simple sharpening kernel
-                                                const centerValue = buffer[i] * (1 + 4 * sharpenAmount);
-                                                const neighborValues = (
-                                                    buffer[i - w * 4] + 
-                                                    buffer[i - 4] + 
-                                                    buffer[i + 4] + 
-                                                    buffer[i + w * 4]
-                                                ) * sharpenAmount;
-                                                
-                                                data[i] = Math.min(255, Math.max(0, centerValue - neighborValues));
-                                            }
-                                        }
-                                    }
-                                    
-                                    ctx.putImageData(imageData, 0, 0);
-                                }
-                                
-                                // Convert to JPEG
-                                canvas.convertToBlob({ type: 'image/jpeg', quality: jpegQuality })
-                                    .then(blob => {
-                                        const blobUrl = URL.createObjectURL(blob);
-                                        self.postMessage({ blobUrl, dimensions: { width: newWidth, height: newHeight } });
-                                    });
-                            };
-                            
-                            img.onerror = function() {
-                                self.postMessage({ error: 'Failed to load image' });
-                            };
-                        };
-                    `;
-                    
-                    const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
-                    const workerUrl = URL.createObjectURL(workerBlob);
-                    const worker = new Worker(workerUrl);
-                    
-                    worker.onmessage = function(e) {
-                        if (e.data.error) {
-                            reject(e.data.error);
-                        } else {
-                            resolve({
-                                file: file,
-                                blobUrl: e.data.blobUrl,
-                                dimensions: e.data.dimensions
-                            });
-                        }
-                        
-                        // Clean up
-                        worker.terminate();
-                        URL.revokeObjectURL(workerUrl);
-                    };
-                    
-                    worker.onerror = function(error) {
-                        reject(error);
-                        worker.terminate();
-                        URL.revokeObjectURL(workerUrl);
-                    };
-                    
-                    // Start processing
-                    worker.postMessage({
-                        file: file,
-                        maxResolution: maxResolution,
-                        jpegQuality: jpegQuality,
-                        enableSharpening: enableSharpening
-                    });
-                    
-                } catch (err) {
-                    // Fall back to main thread processing if worker setup fails
-                    console.log("Worker setup failed, falling back to main thread:", err);
-                    convertToJPEG(file, maxResolution, jpegQuality, enableSharpening)
-                        .then(result => resolve({ file, blobUrl: result.blobUrl }))
-                        .catch(reject);
-                }
-            } else {
-                // Web Workers not supported, process on main thread
-                convertToJPEG(file, maxResolution, jpegQuality, enableSharpening)
-                    .then(result => resolve({ file, blobUrl: result.blobUrl }))
-                    .catch(reject);
-            }
-        });
-    }
-
-    // Fallback function for main thread processing
-    async function convertToJPEG(file, maxResolution, jpegQuality, enableSharpening) {
-        return new Promise((resolve, reject) => {
+            // Create an image from the file
             const img = new Image();
-            img.src = URL.createObjectURL(file);
-
-            img.onload = function () {
+            const objectUrl = URL.createObjectURL(file);
+            
+            img.onload = function() {
                 // Calculate dimensions while maintaining aspect ratio
                 let newWidth = img.width;
                 let newHeight = img.height;
-                const minDimension = MIN_RESOLUTION;
                 
-                // Handle minimum resolution
-                if (img.width < minDimension || img.height < minDimension) {
+                // Handle minimum resolution (800px)
+                if (img.width < MIN_RESOLUTION && img.height < MIN_RESOLUTION) {
                     const aspectRatio = img.width / img.height;
                     
                     if (img.width < img.height) {
-                        newWidth = minDimension;
+                        newWidth = MIN_RESOLUTION;
                         newHeight = newWidth / aspectRatio;
                     } else {
-                        newHeight = minDimension;
-                        newWidth = newHeight * aspectRatio;
-                    }
-                    
-                    if (newWidth < minDimension) {
-                        newWidth = minDimension;
-                        newHeight = newWidth / aspectRatio;
-                    }
-                    if (newHeight < minDimension) {
-                        newHeight = minDimension;
+                        newHeight = MIN_RESOLUTION;
                         newWidth = newHeight * aspectRatio;
                     }
                 }
@@ -424,99 +204,73 @@ document.addEventListener('DOMContentLoaded', function () {
                 newWidth = Math.round(newWidth);
                 newHeight = Math.round(newHeight);
                 
+                // Create canvas and context
                 const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
                 canvas.width = newWidth;
                 canvas.height = newHeight;
+                const ctx = canvas.getContext('2d');
                 
-                // Lanczos-like approach for upscaling low-res images
-                if (img.width < newWidth && Math.max(img.width, img.height) < minDimension) {
-                    // Upscaling a low-res image using stepped approach
-                    const steps = 3; // Number of steps for gradual upscaling
-                    const tempCanvas = document.createElement('canvas');
-                    const tempCtx = tempCanvas.getContext('2d');
-                    
-                    // Start with original dimensions
-                    let stepWidth = img.width;
-                    let stepHeight = img.height;
-                    
-                    // Gradually upscale
-                    for (let i = 0; i < steps; i++) {
-                        const progress = (i + 1) / steps;
-                        const targetStepWidth = Math.round(img.width + (newWidth - img.width) * progress);
-                        const targetStepHeight = Math.round(img.height + (newHeight - img.height) * progress);
-                        
-                        tempCanvas.width = targetStepWidth;
-                        tempCanvas.height = targetStepHeight;
-                        
-                        tempCtx.imageSmoothingEnabled = true;
-                        tempCtx.imageSmoothingQuality = 'high';
-                        
-                        if (i === 0) {
-                            tempCtx.drawImage(img, 0, 0, targetStepWidth, targetStepHeight);
-                        } else {
-                            tempCtx.drawImage(tempCanvas, 0, 0, stepWidth, stepHeight, 0, 0, targetStepWidth, targetStepHeight);
-                        }
-                        
-                        stepWidth = targetStepWidth;
-                        stepHeight = targetStepHeight;
-                    }
-                    
-                    // Final draw
-                    ctx.drawImage(tempCanvas, 0, 0);
-                } else {
-                    // Normal scaling for images that don't need special handling
-                    ctx.imageSmoothingEnabled = true;
-                    ctx.imageSmoothingQuality = 'high';
-                    ctx.drawImage(img, 0, 0, newWidth, newHeight);
-                }
+                // Set high quality rendering
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, newWidth, newHeight);
                 
                 // Apply sharpening if enabled and image was upscaled
-                if (enableSharpening && img.width < newWidth && Math.max(img.width, img.height) < minDimension) {
-                    // Get image data for pixel manipulation
-                    const imageData = ctx.getImageData(0, 0, newWidth, newHeight);
-                    const data = imageData.data;
-                    const sharpenAmount = 0.3; // Adjust as needed
-                    
-                    // Create a copy of the data for our calculations
-                    const buffer = new Uint8ClampedArray(data.length);
-                    buffer.set(data);
-                    
-                    const w = newWidth;
-                    const h = newHeight;
-                    
-                    // Apply sharpening convolution
-                    for (let y = 1; y < h - 1; y++) {
-                        for (let x = 1; x < w - 1; x++) {
-                            for (let c = 0; c < 3; c++) {
-                                const i = (y * w + x) * 4 + c;
-                                
-                                // Apply a simple sharpening kernel
-                                const centerValue = buffer[i] * (1 + 4 * sharpenAmount);
-                                const neighborValues = (
-                                    buffer[i - w * 4] + 
-                                    buffer[i - 4] + 
-                                    buffer[i + 4] + 
-                                    buffer[i + w * 4]
-                                ) * sharpenAmount;
-                                
-                                data[i] = Math.min(255, Math.max(0, centerValue - neighborValues));
-                            }
-                        }
-                    }
-                    
-                    ctx.putImageData(imageData, 0, 0);
+                if (enableSharpening && img.width < newWidth) {
+                    applySharpening(ctx, newWidth, newHeight);
                 }
-
-                // Convert to JPEG format
-                const convertedDataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
-                resolve({ blobUrl: convertedDataUrl, dimensions: { width: newWidth, height: newHeight } });
+                
+                // Convert to blob and resolve
+                canvas.toBlob(
+                    blob => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        URL.revokeObjectURL(objectUrl); // Clean up original object URL
+                        resolve({ file, blobUrl });
+                    },
+                    'image/jpeg',
+                    jpegQuality
+                );
             };
             
             img.onerror = function() {
+                URL.revokeObjectURL(objectUrl);
                 reject('Failed to load image');
             };
+            
+            img.src = objectUrl;
         });
+    }
+    
+    // Apply sharpening to canvas context
+    function applySharpening(ctx, width, height) {
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const buffer = new Uint8ClampedArray(data.length);
+        buffer.set(data);
+        
+        const sharpenAmount = 0.3;
+        
+        // Apply sharpening kernel
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                for (let c = 0; c < 3; c++) {
+                    const i = (y * width + x) * 4 + c;
+                    
+                    // Apply sharpening kernel
+                    const centerValue = buffer[i] * (1 + 4 * sharpenAmount);
+                    const neighborValues = (
+                        buffer[i - width * 4] + 
+                        buffer[i - 4] + 
+                        buffer[i + 4] + 
+                        buffer[i + width * 4]
+                    ) * sharpenAmount;
+                    
+                    data[i] = Math.min(255, Math.max(0, centerValue - neighborValues));
+                }
+            }
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
     }
 
     // Download all button handler
@@ -527,63 +281,62 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (convertedBlobUrls.length === 1) {
-            downloadLink(convertedBlobUrls[0], 'converted_image.jpeg');
+            // Download single image
+            const link = document.createElement('a');
+            link.href = convertedBlobUrls[0];
+            link.download = 'converted_image.jpeg';
+            link.click();
         } else {
+            // Check if JSZip is available
+            if (typeof JSZip === 'undefined') {
+                alert('JSZip library not loaded. Cannot create zip file.');
+                return;
+            }
+            
             // Show progress for zip creation
             progressContainer.style.display = 'block';
             progressBar.style.width = '0%';
             progressText.textContent = 'Creating zip file...';
             
             const zip = new JSZip();
-
-            // Process in batches to avoid freezing UI
-            const batchSize = 5;
-            let processed = 0;
             
-            function processBatch(startIdx) {
-                const endIdx = Math.min(startIdx + batchSize, convertedBlobUrls.length);
-                const promises = [];
-                
-                for (let i = startIdx; i < endIdx; i++) {
-                    promises.push(
-                        fetch(convertedBlobUrls[i])
-                            .then(response => response.blob())
-                            .then(blob => {
-                                const filename = `image_${i + 1}.jpeg`;
-                                zip.file(filename, blob);
-                                return filename;
-                            })
-                    );
-                }
-                
-                Promise.all(promises).then(() => {
-                    processed += promises.length;
-                    
-                    // Update progress
-                    const progress = (processed / convertedBlobUrls.length) * 100;
-                    progressBar.style.width = `${progress}%`;
-                    progressText.textContent = `Processing ${processed}/${convertedBlobUrls.length} for zip`;
-                    
-                    if (endIdx < convertedBlobUrls.length) {
-                        // Process next batch
-                        setTimeout(() => {
-                            processBatch(endIdx);
-                        }, 100);
-                    } else {
-                        // All batches processed, generate zip
-                        progressText.textContent = 'Generating zip file...';
+            // Fetch all blob URLs and add to zip
+            const promises = convertedBlobUrls.map((url, i) => 
+                fetch(url)
+                    .then(response => response.blob())
+                    .then(blob => {
+                        zip.file(`image_${i + 1}.jpeg`, blob);
                         
-                        zip.generateAsync({ type: 'blob' }).then(function (content) {
-                            progressContainer.style.display = 'none';
-                            const zipBlobUrl = URL.createObjectURL(content);
-                            downloadLink(zipBlobUrl, 'converted_images.zip');
-                        });
-                    }
-                });
-            }
+                        // Update progress
+                        const progress = ((i + 1) / convertedBlobUrls.length) * 100;
+                        progressBar.style.width = `${progress}%`;
+                        progressText.textContent = `Processing ${i + 1}/${convertedBlobUrls.length} for zip`;
+                    })
+            );
             
-            // Start processing first batch
-            processBatch(0);
+            Promise.all(promises)
+                .then(() => {
+                    progressText.textContent = 'Generating zip file...';
+                    return zip.generateAsync({ type: 'blob' });
+                })
+                .then(content => {
+                    progressContainer.style.display = 'none';
+                    const zipUrl = URL.createObjectURL(content);
+                    const link = document.createElement('a');
+                    link.href = zipUrl;
+                    link.download = 'converted_images.zip';
+                    link.click();
+                    
+                    // Clean up
+                    setTimeout(() => {
+                        URL.revokeObjectURL(zipUrl);
+                    }, 100);
+                })
+                .catch(error => {
+                    console.error('Error creating zip:', error);
+                    progressContainer.style.display = 'none';
+                    alert('Error creating zip file.');
+                });
         }
     });
 
@@ -602,14 +355,5 @@ document.addEventListener('DOMContentLoaded', function () {
         img.src = blobUrl;
         img.className = 'preview-image';
         return img;
-    }
-
-    function downloadLink(url, filename) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
     }
 });
