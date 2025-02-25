@@ -14,7 +14,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const dropZone = document.getElementById('drop-zone');
     
     const convertedBlobUrls = [];
-    const MIN_RESOLUTION = 800;
+    const MIN_RESOLUTION = 800; // Minimum resolution threshold
+    const VERY_LOW_RES_THRESHOLD = 100; // Threshold for extremely low resolution images
     let totalImages = 0;
     let processedImages = 0;
     
@@ -35,7 +36,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Setup file input change listener - FIXED
+    // Setup file input change listener
     fileInput.addEventListener('change', function () {
         // Enable the convert button when files are selected
         convertButton.disabled = this.files.length === 0;
@@ -118,7 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (index >= files.length) {
             // All files processed
             progressContainer.style.display = 'none';
-            if (files.length > 0) {
+            if (files.length > 0 && convertedBlobUrls.length > 0) {
                 downloadAllButton.disabled = false;
                 downloadAllButton.classList.add('enabled-button');
             }
@@ -130,7 +131,7 @@ document.addEventListener('DOMContentLoaded', function () {
         
         // Process the current image
         processImage(files[index], maxResolution, jpegQuality, enableSharpening).then(result => {
-            const { file, blobUrl } = result;
+            const { file, blobUrl, warnings } = result;
             
             // Create and append result element
             const downloadLink = createDownloadLink(blobUrl, file.name);
@@ -139,6 +140,15 @@ document.addEventListener('DOMContentLoaded', function () {
             const resultElement = document.createElement('div');
             resultElement.classList.add('result');
             resultElement.appendChild(img);
+            
+            // Add warning message if needed
+            if (warnings && warnings.length > 0) {
+                const warningElement = document.createElement('div');
+                warningElement.classList.add('warning-message');
+                warningElement.textContent = warnings.join('. ');
+                resultElement.appendChild(warningElement);
+            }
+            
             const lineBreak = document.createElement('br');
             resultElement.appendChild(lineBreak);
             resultElement.appendChild(downloadLink);
@@ -158,36 +168,71 @@ document.addEventListener('DOMContentLoaded', function () {
             }, 50);
         }).catch(error => {
             console.error('Error processing image:', error);
+            
+            // Show error in UI
+            const errorElement = document.createElement('div');
+            errorElement.classList.add('error-result');
+            errorElement.innerHTML = `<strong>Error processing ${files[index].name}:</strong> ${error.message || error}`;
+            resultContainer.appendChild(errorElement);
+            
+            // Update progress
+            processedImages++;
+            const progress = (processedImages / totalImages) * 100;
+            progressBar.style.width = `${progress}%`;
+            
             // Continue with next image
-            processImagesSequentially(files, index + 1, maxResolution, jpegQuality, enableSharpening, resultContainer);
+            setTimeout(() => {
+                processImagesSequentially(files, index + 1, maxResolution, jpegQuality, enableSharpening, resultContainer);
+            }, 50);
         });
     }
 
-    // FIXED image processing function
+    // Improved image processing function with better low resolution handling
     function processImage(file, maxResolution, jpegQuality, enableSharpening) {
         return new Promise((resolve, reject) => {
             // Create an image from the file
             const img = new Image();
             const objectUrl = URL.createObjectURL(file);
+            const warnings = [];
             
             img.onload = function() {
+                // Check for extremely low resolution images
+                if (img.width < VERY_LOW_RES_THRESHOLD || img.height < VERY_LOW_RES_THRESHOLD) {
+                    warnings.push(`Warning: Image is extremely low resolution (${img.width}x${img.height}). Upscaling may not produce good results`);
+                    console.warn(`Very low resolution image: ${img.width}x${img.height}`);
+                }
+                
                 // Calculate dimensions while maintaining aspect ratio
                 let newWidth = img.width;
                 let newHeight = img.height;
                 
                 // Calculate if we need to upscale
-                const needsUpscaling = img.width < MIN_RESOLUTION && img.height < MIN_RESOLUTION;
+                const needsUpscaling = img.width < MIN_RESOLUTION || img.height < MIN_RESOLUTION;
                 
-                // Handle minimum resolution (800px)
+                // Handle minimum resolution
                 if (needsUpscaling) {
+                    // More aggressive upscaling for very small images
+                    const targetResolution = Math.max(MIN_RESOLUTION, Math.min(img.width, img.height) * 4);
                     const aspectRatio = img.width / img.height;
                     
                     if (img.width < img.height) {
-                        newWidth = MIN_RESOLUTION;
-                        newHeight = newWidth / aspectRatio;
+                        // Portrait orientation
+                        if (img.width < MIN_RESOLUTION) {
+                            newWidth = MIN_RESOLUTION;
+                            newHeight = newWidth / aspectRatio;
+                        }
                     } else {
-                        newHeight = MIN_RESOLUTION;
-                        newWidth = newHeight * aspectRatio;
+                        // Landscape or square orientation
+                        if (img.height < MIN_RESOLUTION) {
+                            newHeight = MIN_RESOLUTION;
+                            newWidth = newHeight * aspectRatio;
+                        }
+                    }
+                    
+                    // For very small images, make sure both dimensions meet minimum requirements
+                    if (img.width < VERY_LOW_RES_THRESHOLD || img.height < VERY_LOW_RES_THRESHOLD) {
+                        if (newWidth < MIN_RESOLUTION) newWidth = MIN_RESOLUTION;
+                        if (newHeight < MIN_RESOLUTION) newHeight = MIN_RESOLUTION;
                     }
                     
                     console.log(`Upscaling image from ${img.width}x${img.height} to ${newWidth}x${newHeight}`);
@@ -218,11 +263,37 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Set high quality rendering
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(img, 0, 0, newWidth, newHeight);
+                
+                // Use better upscaling for very low resolution images
+                if (img.width < VERY_LOW_RES_THRESHOLD || img.height < VERY_LOW_RES_THRESHOLD) {
+                    // Multi-step upscaling for better quality
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    
+                    // First step: upscale to intermediate size
+                    const intermediateWidth = Math.round(img.width * 2);
+                    const intermediateHeight = Math.round(img.height * 2);
+                    tempCanvas.width = intermediateWidth;
+                    tempCanvas.height = intermediateHeight;
+                    tempCtx.imageSmoothingEnabled = true;
+                    tempCtx.imageSmoothingQuality = 'high';
+                    tempCtx.drawImage(img, 0, 0, intermediateWidth, intermediateHeight);
+                    
+                    // Second step: upscale to final size
+                    ctx.drawImage(tempCanvas, 0, 0, newWidth, newHeight);
+                } else {
+                    // Standard upscaling for normal images
+                    ctx.drawImage(img, 0, 0, newWidth, newHeight);
+                }
                 
                 // Apply sharpening if enabled and image was upscaled
                 if (enableSharpening && needsUpscaling) {
-                    applySharpening(ctx, newWidth, newHeight);
+                    // More aggressive sharpening for very low resolution images
+                    if (img.width < VERY_LOW_RES_THRESHOLD || img.height < VERY_LOW_RES_THRESHOLD) {
+                        applySharpening(ctx, newWidth, newHeight, 0.5); // Higher sharpening amount
+                    } else {
+                        applySharpening(ctx, newWidth, newHeight, 0.3); // Standard sharpening
+                    }
                 }
                 
                 // Convert to blob and resolve
@@ -230,7 +301,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     blob => {
                         const blobUrl = URL.createObjectURL(blob);
                         URL.revokeObjectURL(objectUrl); // Clean up original object URL
-                        resolve({ file, blobUrl });
+                        resolve({ file, blobUrl, warnings });
                     },
                     'image/jpeg',
                     jpegQuality
@@ -239,21 +310,19 @@ document.addEventListener('DOMContentLoaded', function () {
             
             img.onerror = function() {
                 URL.revokeObjectURL(objectUrl);
-                reject('Failed to load image');
+                reject(new Error('Failed to load image'));
             };
             
             img.src = objectUrl;
         });
     }
     
-    // Apply sharpening to canvas context
-    function applySharpening(ctx, width, height) {
+    // Apply sharpening to canvas context with adjustable amount
+    function applySharpening(ctx, width, height, sharpenAmount = 0.3) {
         const imageData = ctx.getImageData(0, 0, width, height);
         const data = imageData.data;
         const buffer = new Uint8ClampedArray(data.length);
         buffer.set(data);
-        
-        const sharpenAmount = 0.3;
         
         // Apply sharpening kernel
         for (let y = 1; y < height - 1; y++) {
