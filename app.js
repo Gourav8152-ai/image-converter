@@ -19,8 +19,16 @@ document.addEventListener('DOMContentLoaded', function () {
     let totalImages = 0;
     let processedImages = 0;
     
-    // Set initial slider values
-    if (maxResolutionValue) maxResolutionValue.textContent = maxResolutionSlider?.value || '3000';
+    // Set maximum resolution slider to its maximum value by default
+    if (maxResolutionSlider) {
+        maxResolutionSlider.value = maxResolutionSlider.max;
+        if (maxResolutionValue) maxResolutionValue.textContent = maxResolutionSlider.value;
+    } else {
+        // Fallback if slider not found
+        if (maxResolutionValue) maxResolutionValue.textContent = '3000';
+    }
+    
+    // Set initial JPEG quality value
     if (jpegQualityValue) jpegQualityValue.textContent = jpegQualitySlider?.value || '90';
     
     // Update slider value displays
@@ -101,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
         progressContainer.style.display = 'block';
         
         // Get settings from UI
-        const maxResolution = parseInt(maxResolutionSlider?.value || 3000);
+        const maxResolution = parseInt(maxResolutionSlider?.value || maxResolutionSlider?.max || 3000);
         const jpegQuality = parseInt(jpegQualitySlider?.value || 90) / 100;
         const enableSharpening = sharpeningToggle?.checked || false;
         
